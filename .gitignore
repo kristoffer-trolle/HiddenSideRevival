@@ -1,0 +1,10 @@
+# Never commit LEGO files
+*.apk
+*.obb
+*.so
+*.dat
+dump*/
+
+# Local working files (LEGO APKs/OBBs, code dump, notes) - never commit
+local/
+CLAUDE.local.md
