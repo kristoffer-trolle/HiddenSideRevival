@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Patches the original Hidden Side 3.5.4 APK so it no longer shuts itself down after 2022.
+# Patches an original Hidden Side 3.5.4 APK (32-bit or 64-bit) so it no longer shuts itself down after 2022.
 #
 # Usage:  bash scripts/patch_apk.sh <original-3.5.4.apk> [output.apk]
 #
@@ -9,7 +9,6 @@ set -euo pipefail
 
 SRC="${1:?usage: patch_apk.sh <original-3.5.4.apk> [output.apk]}"
 OUT_APK="${2:-HiddenSide-3.5.4-patched.apk}"
-EXPECTED_SHA256="9a0cfbb135445453214647dc5eebcaae507e0dc3cea0b8c4a797e0578fb72e20"
 
 # --- locate tools ------------------------------------------------------------------------------
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -43,36 +42,53 @@ if [ -n "${JAVA_HOME:-}" ]; then   # cygpath: a Windows "C:\..." path would brea
 fi
 command -v keytool >/dev/null || { echo "Java (JDK) not found. Set JAVA_HOME." >&2; exit 1; }
 
-# --- verify input ------------------------------------------------------------------------------
+# --- detect build and verify input ---------------------------------------------------------------
+# LEGO shipped 3.5.4 as two APKs: 32-bit (versionCode 1100100) and 64-bit (versionCode 1200100).
+if unzip -l "$SRC" lib/arm64-v8a/libil2cpp.so >/dev/null 2>&1; then
+  ABI=arm64-v8a;   EXPECTED_SHA256="23bce33bdeffc43d2b3e515a2cdb7ecfdb5b555a882b89c47f69334b29a1d58e"; VC=1200100
+else
+  ABI=armeabi-v7a; EXPECTED_SHA256="9a0cfbb135445453214647dc5eebcaae507e0dc3cea0b8c4a797e0578fb72e20"; VC=1100100
+fi
+echo "input: Hidden Side 3.5.4 $ABI build (expected versionCode $VC)"
 SHA=$(sha256sum "$SRC" | cut -d' ' -f1)
 if [ "$SHA" != "$EXPECTED_SHA256" ]; then
   echo "WARNING: input APK sha256 is $SHA"
-  echo "         expected           $EXPECTED_SHA256 (Hidden Side 3.5.4, versionCode 1100100, armeabi-v7a)"
+  echo "         expected           $EXPECTED_SHA256 (Hidden Side 3.5.4, versionCode $VC, $ABI)"
   echo "         Continuing anyway - the patch itself checks the bytes it changes."
 fi
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-unzip -q "$SRC" lib/armeabi-v7a/libil2cpp.so -d "$WORK"
-SO="$WORK/lib/armeabi-v7a/libil2cpp.so"
+LIB="lib/$ABI/libil2cpp.so"
+unzip -q "$SRC" "$LIB" AndroidManifest.xml -d "$WORK"
 
-# patch <hex offset> <expected bytes> <new bytes> <description>
+# patch <file> <hex offset> <expected bytes> <new bytes> <description>
 patch() {
-  local off=$(( $1 )) cur
-  cur=$(xxd -s "$off" -l $(( ${#2} / 2 )) -p "$SO")
-  if [ "$cur" != "$2" ]; then echo "ERROR ($4): expected $2 at $1, found $cur - wrong APK version?" >&2; exit 1; fi
-  printf "$(echo "$3" | sed 's/../\\x&/g')" | dd of="$SO" bs=1 seek="$off" conv=notrunc status=none
-  echo "patched: $4"
+  local f="$WORK/$1" off=$(( $2 )) cur
+  cur=$(xxd -s "$off" -l $(( ${#3} / 2 )) -p "$f")
+  if [ "$cur" != "$3" ]; then echo "ERROR ($5): expected $3 at $2, found $cur - wrong APK version?" >&2; exit 1; fi
+  echo "$4" | xxd -r -p | dd of="$f" bs=1 seek="$off" conv=notrunc status=none
+  echo "patched: $5"
 }
 
-# ConnectingSceneController.IsDiscontinued(): `DateTime.Now.Year > 2022`  ->  `> 9999`
-# movw r1,#0x7e6 (e30017e6)  ->  movw r1,#0x270f (e302170f)
-patch 0x8BF3CC e61700e3 0f1702e3 "sunset time bomb (year > 2022 -> year > 9999)"
+# ConnectingSceneController.IsDiscontinued() returns `DateTime.Now.Year > 2022`.
+if [ "$ABI" = arm64-v8a ]; then
+  # cmp w0,#0x7e6 ; cset w0,gt (1a9fd7e0)  ->  cmp w0,#0x7e6 ; mov w0,#0 (52800000): never discontinued
+  patch "$LIB" 0x126A280 e0d79f1a 00008052 "sunset time bomb (IsDiscontinued -> always false)"
+else
+  # movw r1,#0x7e6 (e30017e6)  ->  movw r1,#0x270f (e302170f): year > 9999
+  patch "$LIB" 0x8BF3CC e61700e3 0f1702e3 "sunset time bomb (year > 2022 -> year > 9999)"
+fi
+
+# targetSdkVersion 30 -> 29. With 30, Android 11+ package visibility hides the ARCore app from the game
+# (no <queries> entry), so Vuforia reports "ARCore is not installed" and the mid-air ghosts in the
+# minifig scan never appear. Binary manifest attribute: size 8, type TYPE_INT_DEC (0x10), value 0x1e.
+patch AndroidManifest.xml 0x1894 080000101e000000 080000101d000000 "targetSdkVersion 30 -> 29 (lets Vuforia find ARCore)"
 
 # --- repack, align, sign -----------------------------------------------------------------------
 cp "$SRC" "$WORK/unsigned.apk"
 ( cd "$WORK" && "$SEVENZ" d -bso0 -tzip unsigned.apk 'META-INF/*' \
-             && touch lib/armeabi-v7a/libil2cpp.so \
-             && "$SEVENZ" a -bso0 -tzip -mx=6 unsigned.apk lib/armeabi-v7a/libil2cpp.so )
+             && touch "$LIB" AndroidManifest.xml \
+             && "$SEVENZ" a -bso0 -tzip -mx=6 unsigned.apk "$LIB" AndroidManifest.xml )
 "$ZIPALIGN" -f -p 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
 
 KS="$HOME/.android/debug.keystore"

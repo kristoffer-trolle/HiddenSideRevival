@@ -3,14 +3,15 @@
 Get the discontinued **LEGO® Hidden Side™** AR app (2019–2023) running again on Android.
 
 LEGO ended support for the app on 1 January 2023, and since then it shows
-*"The LEGO® Hidden Side App is now discontinued"* and quits. This project fixes that with a **one-instruction patch**.
-Single-player, the Newbury map, ghost hunting and local saves work again. Multiplayer doesn't (yet): LEGO turned off
-those servers.
+*"The LEGO® Hidden Side App is now discontinued"* and quits. This project fixes that, and a second problem that broke
+the **minifigure scan** mini-game, with a small patch to your own copy of the app. Single-player, the Newbury map,
+ghost hunting, the minifigure scan and local saves work again. Multiplayer doesn't (yet): LEGO turned off those servers.
 
 ## What was wrong
 
-You might expect the app died because LEGO shut down its servers. It didn't. **LEGO built a time bomb into the
-final version of the app.**
+You might expect the app died because LEGO shut down its servers. It didn't. Two bugs in the app itself stopped it.
+
+### 1. A time bomb in the final version
 
 The last release, 3.5.4, was LEGO's "sunset" update. When the app starts, it checks the phone's clock:
 
@@ -24,11 +25,27 @@ The year 2022 is written directly into the app's code (hard-coded); no server or
 Everything else the game needs is still there: the map, scenes, ghosts, game data and AR targets ship with the app
 and its OBB data file. Set a phone's date back to 2022 and the unmodified app runs fine without any server.
 
-**The fix:** in the app's compiled code (`lib/armeabi-v7a/libil2cpp.so`, offset `0x8BF3CC`), the number 2022 is
-changed to 9999. That's 2 bytes. The check is still there, but it won't trigger until the year 10000.
-See [docs/TECHNICAL.md](docs/TECHNICAL.md) for how it was found.
+**The fix:** the patch changes this check in the app's compiled code (`libil2cpp.so`) so it never triggers.
+That's 2 bytes in the 32-bit build and 4 bytes in the 64-bit build.
 
-A second, unrelated reason people couldn't get it working: Google Play used to download the ~490 MB **OBB** game
+### 2. No ghosts in the minifigure scan
+
+In the minifigure scan you scan a minifigure, and if it's possessed you aim your phone around to fight the ghost that
+comes out. On today's phones **no ghost ever appeared**. The ghost is placed in mid-air around you, and for that the
+AR engine (Vuforia) needs Google's ARCore to track the phone's movement. It couldn't get ARCore, for two reasons:
+
+- **32-bit:** ARCore no longer works for 32-bit apps on 64-bit phones (Google dropped that in 2020). That's why the
+  **64-bit build of 3.5.4** is the one to use.
+- **Android 11+:** 3.5.4 is built for Android 11 (`targetSdkVersion 30`). From Android 11 on, an app can only "see"
+  other apps it declares in its manifest, and Hidden Side doesn't declare ARCore. So even the 64-bit app concluded
+  that *"ARCore is not installed"*. On the Android 10 phones of 2022 that didn't matter yet.
+
+**The fix:** the patch also sets `targetSdkVersion` to 29 (Android 10), so the app can see ARCore again. Together with
+the 64-bit build, the ghosts appear where they should and the mini-game can be played to the end.
+
+See [docs/TECHNICAL.md](docs/TECHNICAL.md) for how both were found.
+
+A third, unrelated reason people couldn't get it working: Google Play used to download the ~490 MB **OBB** game
 content file separately. APK download sites usually only have the APK, and without the OBB the app has no content.
 
 > **This repo contains no LEGO files.** You need your own copy of the original APK and its OBB data file.
@@ -39,11 +56,10 @@ content file separately. APK download sites usually only have the APK, and witho
 
 ## Quick guide
 
-### Step 1: Check that your phone can run it
+### Step 1: Check your phone
 
-Hidden Side 3.5.4 is a **32-bit** app. Many phones from 2023 and later (Pixel 7 and newer, some recent flagships)
-only run 64-bit apps and **can't** run it. Your phone also needs ARCore support for the AR scanning.
-See [Phone requirements](#phone-requirements) for how to check.
+Almost every phone from the last ten years is 64-bit and should use the **64-bit build** of Hidden Side 3.5.4.
+The phone also needs ARCore support for the AR features. See [Phone requirements](#phone-requirements).
 
 ### Step 2: Get the two game files
 
@@ -52,11 +68,22 @@ The game files are copyrighted by LEGO, so this project can't include them or li
 
 | File | What to look for | SHA-256 (to check you got the right file) |
 |---|---|---|
-| **APK** (the app) | LEGO Hidden Side **3.5.4**, versionCode **1100100**, `armeabi-v7a` | `9a0cfbb135445453214647dc5eebcaae507e0dc3cea0b8c4a797e0578fb72e20` |
+| **APK** (the app), **recommended** | LEGO Hidden Side **3.5.4**, versionCode **1200100**, `arm64-v8a` (64-bit). Usually named `com.lego.ar.hidden_3.5.4-1200100_minAPI24(arm64-v8a)(nodpi)…apk` | `23bce33bdeffc43d2b3e515a2cdb7ecfdb5b555a882b89c47f69334b29a1d58e` |
 | **OBB** (game content, ~490 MB) | `main.1100100.com.lego.ar.hidden.obb` | `07cd79c47bb360429f7b6feef38e3f791c2256c71e1a3102142c176d12f42a49` |
 
-The OBB **must** be the one for 3.5.4 (the `1100100` in its name). OBBs from other versions, like `main.809145…`
+Both 3.5.4 builds use the **same OBB**, the one named `main.1100100…`. Don't worry that it says 1100100 and not
+1200100: the install script gives it the right name on the phone. OBBs from other versions, like `main.809145…`
 (3.4.0), **won't work**, and the app won't start without the OBB.
+
+<details>
+<summary>Only have the 32-bit build?</summary>
+
+The 32-bit build of 3.5.4 (versionCode **1100100**, `armeabi-v7a`, usually named
+`com.lego.ar.hidden_3.5.4-1100100_minAPI24(armeabi-v7a)(nodpi)…apk`, SHA-256
+`9a0cfbb135445453214647dc5eebcaae507e0dc3cea0b8c4a797e0578fb72e20`) works with the same script and OBB.
+The game runs, but on a 64-bit phone **the minifigure scan won't show any ghosts**, because ARCore isn't available to
+32-bit apps there. Only use it for a phone that can't run 64-bit apps.
+</details>
 
 ### Step 3: Download this project and install the tools
 
@@ -78,7 +105,7 @@ The folder should now look like this:
 
 ```
 hidden-side-revival/
-├── original.apk                            <- the 3.5.4 APK you downloaded
+├── original.apk                            <- the 3.5.4 APK you downloaded (renamed)
 ├── main.1100100.com.lego.ar.hidden.obb     <- the OBB you downloaded
 ├── scripts/
 ├── README.md
@@ -94,15 +121,17 @@ Open Git Bash here**. Then run:
 bash scripts/patch_apk.sh original.apk
 ```
 
-You should see:
+You should see (for the 64-bit build):
 
 ```
-patched: sunset time bomb (year > 2022 -> year > 9999)
+input: Hidden Side 3.5.4 arm64-v8a build (expected versionCode 1200100)
+patched: sunset time bomb (IsDiscontinued -> always false)
+patched: targetSdkVersion 30 -> 29 (lets Vuforia find ARCore)
 Done -> HiddenSide-3.5.4-patched.apk
 ```
 
-`HiddenSide-3.5.4-patched.apk` is now in the project folder. The script checks that you gave it the right APK. If you
-get `wrong APK version?`, you have a different version than 3.5.4.
+`HiddenSide-3.5.4-patched.apk` is now in the project folder. The script detects whether you gave it the 64-bit or the
+32-bit build and checks every byte it changes. If you get `wrong APK version?`, you have a different version than 3.5.4.
 
 <details>
 <summary>APK somewhere else, or a different output name?</summary>
@@ -130,40 +159,55 @@ to paste its path.
 bash scripts/install.sh HiddenSide-3.5.4-patched.apk main.1100100.com.lego.ar.hidden.obb
 ```
 
-This removes any existing Hidden Side app (the patched APK has a different signature), installs the patched APK and
-copies the OBB to the right place. Copying the OBB takes a minute or two.
+This installs the patched APK and copies the OBB to the right place, under the name that matches the installed build
+(`main.1200100…` for the 64-bit build). Copying the OBB takes a minute or two. Accept the install prompt on the phone
+if one appears.
+
+**Your progress is kept.** If Hidden Side is already on the phone, the script updates it when it can. If the old app
+has to be uninstalled first (for example the original app from Google Play, which has a different signature),
+the script first copies your save file (`game.lego`) to a `savegame-backup-<date>` folder on your computer and puts it
+back after installing. Keep the phone unlocked while it does that.
 
 The script also works on **Xiaomi/HyperOS** phones, where the normal `adb install` fails with
 `INSTALL_FAILED_USER_RESTRICTED` (it uses a `pm install-create/-write/-commit` session install).
 
 **Option B: by hand**
 
-1. Uninstall any existing Hidden Side app from the phone.
-2. Copy `HiddenSide-3.5.4-patched.apk` to the phone, open it in the phone's file manager and install it
+1. If Hidden Side is already installed and you want to keep your progress, first copy
+   `Internal storage/Android/data/com.lego.ar.hidden/files/game.lego` to your computer. Uninstalling deletes it.
+2. Uninstall any existing Hidden Side app from the phone.
+3. Copy `HiddenSide-3.5.4-patched.apk` to the phone, open it in the phone's file manager and install it
    (allow installing from unknown sources if asked).
-3. Connect the phone to the PC as a USB drive (*File transfer*) and copy the OBB to this exact location:
-   `Internal storage/Android/obb/com.lego.ar.hidden/main.1100100.com.lego.ar.hidden.obb`
-   (create the `com.lego.ar.hidden` folder if it doesn't exist; the file name must be exactly this).
+4. Connect the phone to the PC as a USB drive (*File transfer*), copy the OBB to the folder
+   `Internal storage/Android/obb/com.lego.ar.hidden/` (create it if it doesn't exist) and **rename it** to match the
+   build you installed:
+   - 64-bit build: `main.1200100.com.lego.ar.hidden.obb`
+   - 32-bit build: `main.1100100.com.lego.ar.hidden.obb`
+5. To restore your progress: start Hidden Side once, close it, and copy `game.lego` back to
+   `Internal storage/Android/data/com.lego.ar.hidden/files/`.
 
 ### Step 6: Play
 
-Start **Hidden Side** on the phone. On recent Android versions you may see a warning that the app
-*"isn't compatible with the latest version of Android"* (because it's 32-bit). Tap **OK** and the game starts.
+Start **Hidden Side** on the phone. With the 32-bit build, recent Android versions may show a warning that the app
+*"isn't compatible with the latest version of Android"*. Tap **OK** and the game starts.
 
 ---
 
 ## Phone requirements
 
-- It must run **32-bit ARM apps**. With USB debugging on, run `adb shell getprop ro.product.cpu.abilist`;
-  the output must include `armeabi-v7a`.
-- ARCore support for the AR scanning.
-- Tested: Xiaomi 13 Pro, HyperOS 3 / Android 16.
+- **64-bit build (recommended):** any 64-bit Android phone (Android 7.0 or newer). It should also run on newer phones
+  that only run 64-bit apps, like the Pixel 7 and later (not tested yet; reports welcome).
+- **32-bit build:** the phone must run 32-bit apps. With USB debugging on, `adb shell getprop ro.product.cpu.abilist`
+  must include `armeabi-v7a`. On 64-bit phones the minifigure scan won't show ghosts with this build.
+- **ARCore** support ("Google Play Services for AR") for the AR features.
+- Tested: Xiaomi 13 Pro, HyperOS 3 / Android 16, with both builds.
 
-The OBB must match the APK exactly: Unity ties them together with a build ID (`3d831307-2e2e-45e9-9482-9603eb45051e`).
+The OBB must match the APK exactly: Unity ties them together with a build ID (`3d831307-2e2e-45e9-9482-9603eb45051e`),
+which both 3.5.4 builds share.
 
 ### No tools at all? (quick test only)
-The unpatched 3.5.4 also works if the device date is set to **2022**. That's fine for a quick try or an emulator,
-but not something you want on your everyday phone.
+The unpatched 3.5.4 also starts if the device date is set to **2022**. That's fine for a quick try, but not something
+you want on your everyday phone, and the minifigure scan still won't show ghosts on Android 11 and newer.
 
 ## What works
 
@@ -171,6 +215,7 @@ but not something you want on your everyday phone.
 |---|---|
 | Startup, Newbury map, tutorial | Multiplayer (Photon servers shut down) |
 | Single-player gameplay, ghost hunting | Online extras: mail, events, leaderboards, LEGO ID |
+| Minifigure scan and its ghost mini-game (64-bit build) | |
 | Game data (bundled in the OBB) | |
 | Local saves (`game.lego` on the device) | |
 
@@ -181,10 +226,22 @@ but not something you want on your everyday phone.
 | `Android SDK build-tools not found` | Install Build-Tools in Android Studio's SDK Manager (Step 3), or set `ANDROID_HOME` to your SDK folder. |
 | `Java (JDK) not found` | Install Android Studio (it includes Java), or set `JAVA_HOME`. |
 | `7-Zip (7z) not found` | Install [7-Zip](https://www.7-zip.org/). |
-| `wrong APK version?` | Your APK isn't 3.5.4 (1100100, armeabi-v7a). Compare its SHA-256 with the table in Step 2. |
+| `wrong APK version?` | Your APK isn't one of the two 3.5.4 builds. Compare its SHA-256 with the table in Step 2. |
 | `No phone found` | Check the USB cable, turn on USB debugging and tap **Allow** on the phone. |
-| `INSTALL_FAILED_NO_MATCHING_ABIS` | Your phone is 64-bit only and can't run 3.5.4. |
+| `Install was cancelled on the phone` | The phone showed an install prompt that wasn't accepted in time. Run the script again and tap **Install**. |
+| `INSTALL_FAILED_NO_MATCHING_ABIS` | The build doesn't fit your phone. Use the 64-bit build. |
 | The app doesn't get past startup | Most likely the OBB is missing, in the wrong folder, misnamed or from another version. Check Step 5. |
+| Minifigure scan: no ghost appears when you aim the phone around | You're running the 32-bit build or an unpatched app. Install the patched 64-bit build. |
+| Minifigure scan: the ghost is see-through and can't be hurt | Caused by leftover data in an older save, not by the app (see [Known issues](#known-issues)). |
+
+## Known issues
+
+- **See-through ghost in the minifigure scan with an old save.** On one save from before the shutdown, the minifigure
+  scan ghost was transparent and took no damage, while a new game worked fine. The save still held three ghost IDs
+  from an earlier minifigure scan that had never finished (`RedSessionGhostId`, `BlueSessionGhostId` and
+  `YellowSessionGhostId` for `MSE`), and the game then tried to spawn two ghosts at once. Clearing those three values
+  in the save fixed it for good. The save file is encrypted, and this project doesn't include a tool to edit it.
+  If you run into this, open an issue.
 
 ## To do / help wanted
 
@@ -198,13 +255,12 @@ Contributions are welcome. Open an issue or pull request.
 - **Replacement game server.** The original Kung Fu Factory server (`projectbanana.ninja`) is gone. Its address is in
   `server_settings.json` inside the OBB (plain HTTP, no TLS), so a self-hosted server could stand in for it.
   First step: find out which features (mail, events, currency, multiplayer) actually need it.
-- **64-bit-only phones.** 3.5.4 only exists as 32-bit. The older 3.4.0 has a 64-bit (arm64) build that might run on
-  newer phones like the Pixel 7+. It needs its own analysis: does it have the same time bomb, and does its OBB work?
+- **Fix the see-through ghost in the app itself**, so old saves don't need editing (see [Known issues](#known-issues)).
 
 ## How it was found
 
-See [docs/TECHNICAL.md](docs/TECHNICAL.md) for the full write-up: IL2CPP analysis, startup flow, the dead
-backends and the patch itself.
+See [docs/TECHNICAL.md](docs/TECHNICAL.md) for the full write-up: IL2CPP analysis, startup flow, the ARCore problem,
+the dead backends and the patches themselves.
 
 ## License
 

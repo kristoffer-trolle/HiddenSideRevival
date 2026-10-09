@@ -32,7 +32,47 @@ The armeabi-v7a and arm64 builds of one version share a build ID (checked for 3.
      0x8BF3D0  cmp  r0, r1
      0x8BF3D4  movwgt r4, #1          ; discontinued = true
      ```
-   - **Patch:** `0x8BF3CC` in `lib/armeabi-v7a/libil2cpp.so`: `e6 17 00 e3` → `0f 17 02 e3` (`movw r1, #9999`).
+   - **Patch (32-bit, versionCode 1100100):** `0x8BF3CC` in `lib/armeabi-v7a/libil2cpp.so`:
+     `e6 17 00 e3` → `0f 17 02 e3` (`movw r1, #9999`).
+   - The 64-bit build (versionCode 1200100) compiles the same method to:
+     ```
+     0x126A274  bl   DateTime.get_Year
+     0x126A27C  cmp  w0, #0x7e6        ; 2022
+     0x126A280  cset w0, gt            ; return year > 2022
+     ```
+     9999 doesn't fit in an ARM64 `cmp` immediate, so the patch replaces the `cset` instead:
+     `0x126A280` in `lib/arm64-v8a/libil2cpp.so`: `e0 d7 9f 1a` → `00 00 80 52` (`mov w0, #0`, never discontinued).
+     It's the only `cmp wN, #2022` in the whole library.
+3. **No ghosts in the minifigure scan (MSE, `MSEFlowController`).** The ghost is placed with Vuforia's
+   `ContentPositioningBehaviour` / `MidAirPositionerBehaviour`, which needs platform tracking (ARCore). The log shows
+   why it failed:
+   ```
+   AR    : ARCore is not available to Vuforia, it reports that this device is supported but ARCore is not installed.
+   Unity : ------------ FUSION PROVIDER: VUFORIA_VISION_ONLY
+   Unity : Could not create Anchor.
+   ```
+   - **32-bit build:** ARCore no longer supports 32-bit apps on 64-bit devices (Google's 64-bit requirement, 2020).
+     The installed ARCore (1.56 on the test phone) only ships `lib/arm64-v8a/libarcore_c.so`.
+   - **Both builds:** 3.5.4 has `targetSdkVersion 30` but no `<queries>` entry for `com.google.ar.core`. With
+     Android 11 package visibility, the app can't see the ARCore package, so Vuforia 9.8.13 decides it isn't
+     installed. (3.4.0 targets SDK 29 and doesn't have this problem.)
+   - **Patch:** `targetSdkVersion` 30 → 29 in the binary `AndroidManifest.xml` (attribute at offset `0x1894`, value
+     `08 00 00 10 1e 00 00 00` → `… 1d 00 00 00`; same offset in both builds). With the 64-bit build the log then
+     shows `Vuforia Fusion: Detected and enabled use of Google ARCore` and `FUSION PROVIDER: PLATFORM_SENSOR_FUSION`,
+     and the mid-air ghosts appear.
+   - Both 3.5.4 builds share build ID `3d831307-…`, so the 64-bit build uses the same OBB, named `main.1200100…`.
+
+## Save data and the see-through MSE ghost
+- All progress is in `<persistentDataPath>/game.lego` (`SaveManager.SaveData`: inventory, sets, missions, store,
+  tutorial, upgrades, quests, stats). It's encrypted JSON (AES via `CbcCrypto.FileDecrypt`). PlayerPrefs only hold
+  small settings.
+- With one pre-2023 save, the MSE ghost was see-through and took no damage. The log showed a ghost already spawned
+  when `MSEFlowController.DialogSeqGhostCapFinished` → `SkuController.StartGhostCapturing` ran, which then logged
+  `Trying to spawn a second ghost`. That save had `RedSessionGhostId`/`BlueSessionGhostId`/`YellowSessionGhostId` set
+  for the `MSE` entry in `SkuState.Skus`, apparently left over from an unfinished scan. A new save has them empty.
+  Clearing them fixed it, and they stay empty after a completed MSE run. The exact code path of the extra spawn
+  isn't proven; the prime suspect is `PointOfInterestManager.DoPOIEvent`, which after the MSE branch also processes
+  queued POI drops that can call `DoSessionGhostCapture`.
 
 ## Backends (state on 2026-10-06)
 | Backend | Used for | State |
