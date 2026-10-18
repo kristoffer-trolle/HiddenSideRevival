@@ -79,6 +79,52 @@ else
   patch "$LIB" 0x8BF3CC e61700e3 0f1702e3 "sunset time bomb (year > 2022 -> year > 9999)"
 fi
 
+# SkuController.Initialize: `if (!AreSessionGhostSelected(sku)) SelectRandomSessionGhosts(sku);`
+# Session ghosts are only cleared on the results screen, so a minifigure scan that is left early keeps them in the
+# save, and the next scan spawns an extra, see-through ghost that can't be hurt. Always picking new session ghosts
+# (removing the conditional branch) avoids that. Side effect: a set gets new session ghosts each time it's opened.
+if [ "$ABI" = arm64-v8a ]; then
+  # tbnz w0,#0,<skip> (370000e0)  ->  nop (d503201f)
+  patch "$LIB" 0x11FF264 e0000037 1f2003d5 "always pick new session ghosts (fixes see-through minifigure scan ghost)"
+else
+  # bne <skip> (1a00000a)  ->  nop (e320f000)
+  patch "$LIB" 0x83B724 0a00001a 00f020e3 "always pick new session ghosts (fixes see-through minifigure scan ghost)"
+fi
+
+# EXPERIMENTAL (GHOST_OFFLINE=1): Ghost mode without LEGO's dead Photon account. MultiplayerManager.ConnectToMaster
+# ends with PhotonNetwork.ConnectUsingSettings(); replace it with PhotonNetwork.OfflineMode = true, so Photon runs a
+# local room and the host can fill the match with simulated players.
+if [ "${GHOST_OFFLINE:-0}" = 1 ]; then
+  if [ "$ABI" = arm64-v8a ]; then
+    # mov x0,xzr ; bl ConnectUsingSettings  ->  mov w0,#1 ; bl set_OfflineMode
+    patch "$LIB" 0x139DF5C e0031faad3af2f94 2000805277a62f94 "EXPERIMENTAL: Ghost mode in Photon offline mode"
+  else
+    # mov r0,#0 ; bl ConnectUsingSettings  ->  mov r0,#1 ; bl set_OfflineMode
+    patch "$LIB" 0xA3681C 0000a0e3b62639eb 0100a0e3181b39eb "EXPERIMENTAL: Ghost mode in Photon offline mode"
+  fi
+  # Before Ghost mode starts, SessionManager.PingInternetReachable pings the dead game server and also needs a player
+  # ID from its login, so the game shows "NEED INTERNET". Make its result callback always take the success branch.
+  if [ "$ABI" = arm64-v8a ]; then
+    # tbz w20,#0,<fail>  ->  b <success>
+    patch "$LIB" 0x156BB38 f4000036 31000014 "EXPERIMENTAL: internet check always succeeds"
+  else
+    # beq <fail>  ->  b <success>
+    patch "$LIB" 0xC717B0 0800000a 310000ea "EXPERIMENTAL: internet check always succeeds"
+  fi
+  # MultiplayerConnectionPanel.StartSearchForRooms: in offline mode Photon's JoinRandomRoom "succeeds" with an empty
+  # local room and the game waits forever for a host. Call FailedToFindRoom() instead of JoinRoom(), so after a few
+  # retries the player becomes the ghost host, who fills the match with a simulated hunter.
+  if [ "$ABI" = arm64-v8a ]; then
+    # mov x0,x21 ; mov w1,w20 ; bl JoinRoom ; tbz w0,#0,<popup>  ->  mov x0,x19 ; mov w1,w20 ; bl FailedToFindRoom ; nop
+    patch "$LIB" 0x13AC1C0 e00315aae103142a22caff97a0000036 e00313aae103142a730800941f2003d5 \
+      "EXPERIMENTAL: room search fails, so the player hosts a match"
+  else
+    # mov r0,r6 ; ... ; bl JoinRoom ; cmp r0,#0 ; beq <popup>  ->  mov r0,r4 ; ... ; bl FailedToFindRoom ; cmp ; nop
+    patch "$LIB" 0xA489B0 0600a0e10510a0e10720a0e137bbffeb000050e30100000a \
+      0400a0e10510a0e10720a0e14c0a00eb000050e300f020e3 "EXPERIMENTAL: room search fails, so the player hosts a match"
+  fi
+fi
+
 # targetSdkVersion 30 -> 29. With 30, Android 11+ package visibility hides the ARCore app from the game
 # (no <queries> entry), so Vuforia reports "ARCore is not installed" and the mid-air ghosts in the
 # minifig scan never appear. Binary manifest attribute: size 8, type TYPE_INT_DEC (0x10), value 0x1e.

@@ -70,9 +70,44 @@ The armeabi-v7a and arm64 builds of one version share a build ID (checked for 3.
   when `MSEFlowController.DialogSeqGhostCapFinished` → `SkuController.StartGhostCapturing` ran, which then logged
   `Trying to spawn a second ghost`. That save had `RedSessionGhostId`/`BlueSessionGhostId`/`YellowSessionGhostId` set
   for the `MSE` entry in `SkuState.Skus`, apparently left over from an unfinished scan. A new save has them empty.
-  Clearing them fixed it, and they stay empty after a completed MSE run. The exact code path of the extra spawn
-  isn't proven; the prime suspect is `PointOfInterestManager.DoPOIEvent`, which after the MSE branch also processes
-  queued POI drops that can call `DoSessionGhostCapture`.
+  Clearing them fixed it. The exact code path of the extra spawn isn't proven; the prime suspect is
+  `PointOfInterestManager.DoPOIEvent`, which after the MSE branch also processes queued POI drops that can call
+  `DoSessionGhostCapture`.
+- Why the IDs go stale: `SkuController.Initialize` does
+  `if (!SkuStateManager.AreSessionGhostSelected(sku)) SkuStateManager.SelectRandomSessionGhosts(sku);`, and the only
+  caller of `ClearSessionGhosts` is `CommonPanelsManager.OpenSabaResultsPanel`. Leave a scan before the results screen
+  and the IDs stay in the save; the next start reuses them. Seen again a week later on the same phone.
+- **Patch:** remove the conditional branch so `SelectRandomSessionGhosts` always runs:
+  64-bit `0x11FF264` `tbz w0,#0,…` → `nop`; 32-bit `0x83B724` `bne …` → `nop`. Tested with a save holding stale MSE
+  session ghosts: one ghost, `GhostCaptureComplete`, "MSE cleared".
+
+## Ghost mode offline (optional, `GHOST_OFFLINE=1`)
+Ghost mode ("DigitalStealthGame") is a Photon PUN 2 multiplayer mode. The host can already fill empty places with AI
+(`DigitalStealthGameAIGhostMP`, simulated hunter), but only inside a Photon room. Three patches get it there offline
+(addresses 64-bit / 32-bit):
+1. `MainMenuGhostPreLobby.OnClickGhostMulti` calls `SessionManager.PingInternetReachable`, which pings the dead game
+   server and also needs a login ID, so it showed "NEED INTERNET". Its result lambda
+   (`<>c__DisplayClass121_0.<PingInternetReachable>b__0`) always takes the success branch:
+   `0x156BB38` `tbz w20,…` → `b 0x156BBFC`; `0xC717B0` `beq …` → `b 0xC7187C`.
+2. `MultiplayerManager.ConnectToMaster` ends with `PhotonNetwork.ConnectUsingSettings()`. It now calls
+   `PhotonNetwork.set_OfflineMode(true)` instead (which fires `OnConnectedToMaster` right away):
+   `0x139DF5C` `mov x0,xzr ; bl ConnectUsingSettings` → `mov w0,#1 ; bl set_OfflineMode`;
+   `0xA3681C` `mov r0,#0 ; bl …` → `mov r0,#1 ; bl set_OfflineMode`.
+3. In offline mode `JoinRandomRoom` "succeeds" with an empty local room and the client waits forever for a host.
+   `MultiplayerConnectionPanel.StartSearchForRooms` now calls `FailedToFindRoom()` instead of
+   `MultiplayerManager.JoinRoom()`; after `hostAtTime` the game logs "B: START GHOST HOST", creates the room itself and
+   starts with AI players (`InstantiateAIGhostPlayer`, `OnGameplayStartedAsHost`).
+   `0x13AC1C0`: `mov x0,x21 ; … ; bl JoinRoom ; tbz w0,…` → `mov x0,x19 ; … ; bl FailedToFindRoom ; nop`;
+   `0xA489B0`: `mov r0,r6 ; … ; bl JoinRoom ; cmp ; beq` → `mov r0,r4 ; … ; bl FailedToFindRoom ; cmp ; nop`.
+
+Private match still fails: `MainMenuGhostPreLobby.GetPriveRoomCode` tail-calls `SQServer.GetPrivateRoom`, whose
+callback `OnRequestRoomCallback` needs `{"success":…, "data":{"room":…}}` and then calls
+`MultiplayerConnectionPanel.SetPrivateRoom(room)` and `StartAsGhost(true)`. Redirecting that tail call is the next step.
+
+## Ghost Zoo
+`GhostAquarium` scene / `AquariumManager`: a showcase where collected ghosts walk around a scanned set or the floor
+(`AquariumGhost` actions: move, attack animations, "RushDance", periodic "show off"). There is no scoring or
+objective beyond the tutorial, so "nothing happens" is the intended design.
 
 ## Backends (state on 2026-10-06)
 | Backend | Used for | State |

@@ -3,13 +3,15 @@
 Get the discontinued **LEGO® Hidden Side™** AR app (2019–2023) running again on Android.
 
 LEGO ended support for the app on 1 January 2023, and since then it shows
-*"The LEGO® Hidden Side App is now discontinued"* and quits. This project fixes that, and a second problem that broke
+*"The LEGO® Hidden Side App is now discontinued"* and quits. This project fixes that, and the problems that broke
 the **minifigure scan** mini-game, with a small patch to your own copy of the app. Single-player, the Newbury map,
-ghost hunting, the minifigure scan and local saves work again. Multiplayer doesn't (yet): LEGO turned off those servers.
+ghost hunting, the minifigure scan, the Ghost Zoo and local saves work again. An optional, experimental patch also
+lets you play **Ghost mode against computer-controlled players**. Online multiplayer doesn't work: LEGO turned off
+those servers.
 
 ## What was wrong
 
-You might expect the app died because LEGO shut down its servers. It didn't. Two bugs in the app itself stopped it.
+You might expect the app died because LEGO shut down its servers. It didn't. Bugs in the app itself stopped it.
 
 ### 1. A time bomb in the final version
 
@@ -43,7 +45,17 @@ AR engine (Vuforia) needs Google's ARCore to track the phone's movement. It coul
 **The fix:** the patch also sets `targetSdkVersion` to 29 (Android 10), so the app can see ARCore again. Together with
 the 64-bit build, the ghosts appear where they should and the mini-game can be played to the end.
 
-See [docs/TECHNICAL.md](docs/TECHNICAL.md) for how both were found.
+### 3. A see-through ghost that can't be hurt
+
+Sometimes the minifigure scan ghost showed up see-through and took no damage. When a set or the minifigure scan
+starts, the game picks three "session ghosts" and stores them in the save file. It only clears them on the results
+screen at the end, so if you leave a scan early they stay in the save. The next time, the game reuses them and ends
+up spawning a second ghost on top of the real one.
+
+**The fix:** the patch makes the game always pick new session ghosts when a set or the minifigure scan starts.
+Side effect: a set may have different ghosts than the last time you opened it.
+
+See [docs/TECHNICAL.md](docs/TECHNICAL.md) for how all of this was found.
 
 A third, unrelated reason people couldn't get it working: Google Play used to download the ~490 MB **OBB** game
 content file separately. APK download sites usually only have the APK, and without the OBB the app has no content.
@@ -126,6 +138,7 @@ You should see (for the 64-bit build):
 ```
 input: Hidden Side 3.5.4 arm64-v8a build (expected versionCode 1200100)
 patched: sunset time bomb (IsDiscontinued -> always false)
+patched: always pick new session ghosts (fixes see-through minifigure scan ghost)
 patched: targetSdkVersion 30 -> 29 (lets Vuforia find ARCore)
 Done -> HiddenSide-3.5.4-patched.apk
 ```
@@ -144,6 +157,25 @@ bash scripts/patch_apk.sh ~/Downloads/com.lego.ar.hidden_3.5.4.apk ~/Desktop/Hid
 
 Put quotes around paths that contain spaces or parentheses. Tip: in Git Bash you can drag a file onto the window
 to paste its path.
+</details>
+
+<details>
+<summary>Optional: Ghost mode against computer-controlled players (experimental)</summary>
+
+Ghost mode is a multiplayer mode (you play a ghost, someone else hunts you), and it needs LEGO's servers, which are
+gone. With this option the game runs Ghost mode on the phone itself, and fills the empty places with computer-controlled
+ghosts and a computer-controlled hunter. Build the APK like this instead:
+
+```bash
+GHOST_OFFLINE=1 bash scripts/patch_apk.sh original.apk
+```
+
+Then in the game: **Ghost mode → Play multiplayer**. The search screen looks for other players for a moment, then
+you become the host and the match starts with computer players. Tested on one phone with full matches.
+
+Not working yet: **Private match** stops on a half-black screen after choosing a set (it asks the dead server for a
+room code). This option also makes the game's "is there internet?" check always say yes, so online-only features
+don't show a "need internet" message anymore; they still don't work.
 </details>
 
 ### Step 5: Install on the phone
@@ -213,11 +245,12 @@ you want on your everyday phone, and the minifigure scan still won't show ghosts
 
 | Works ✅ | Doesn't work ❌ |
 |---|---|
-| Startup, Newbury map, tutorial | Multiplayer (Photon servers shut down) |
-| Single-player gameplay, ghost hunting | Online extras: mail, events, leaderboards, LEGO ID |
-| Minifigure scan and its ghost mini-game (64-bit build) | |
-| Game data (bundled in the OBB) | |
-| Local saves (`game.lego` on the device) | |
+| Startup, Newbury map, tutorial | Online multiplayer with other players (Photon servers shut down) |
+| Single-player gameplay, ghost hunting | Ghost mode private match |
+| Minifigure scan and its ghost mini-game (64-bit build) | Online extras: mail, events, leaderboards, LEGO ID |
+| Ghost Zoo (a showcase: your ghosts move around on your set; there is no scoring) | |
+| Ghost mode against computer players (with the optional `GHOST_OFFLINE=1` patch) | |
+| Game data (bundled in the OBB), local saves (`game.lego` on the device) | |
 
 ## Troubleshooting
 
@@ -232,30 +265,28 @@ you want on your everyday phone, and the minifigure scan still won't show ghosts
 | `INSTALL_FAILED_NO_MATCHING_ABIS` | The build doesn't fit your phone. Use the 64-bit build. |
 | The app doesn't get past startup | Most likely the OBB is missing, in the wrong folder, misnamed or from another version. Check Step 5. |
 | Minifigure scan: no ghost appears when you aim the phone around | You're running the 32-bit build or an unpatched app. Install the patched 64-bit build. |
-| Minifigure scan: the ghost is see-through and can't be hurt | Caused by leftover data in an older save, not by the app (see [Known issues](#known-issues)). |
+| Minifigure scan: the ghost is see-through and can't be hurt | Fixed by the patch (see [What was wrong](#3-a-see-through-ghost-that-cant-be-hurt)). Make sure you installed a build made with the current script. |
+| Ghost mode: `NEED INTERNET` | Ghost mode needs the dead servers. Build with `GHOST_OFFLINE=1` to play against computer players (Step 4). |
 
 ## Known issues
 
-- **See-through ghost in the minifigure scan with an old save.** On one save from before the shutdown, the minifigure
-  scan ghost was transparent and took no damage, while a new game worked fine. The save still held three ghost IDs
-  from an earlier minifigure scan that had never finished (`RedSessionGhostId`, `BlueSessionGhostId` and
-  `YellowSessionGhostId` for `MSE`), and the game then tried to spawn two ghosts at once. Clearing those three values
-  in the save fixed it for good. The save file is encrypted, and this project doesn't include a tool to edit it.
-  If you run into this, open an issue.
+- **Ghost mode private match** stops on a half-black screen after you choose a set, even with `GHOST_OFFLINE=1`.
+  Use *Play multiplayer* instead.
+- **Ghost mode ammo** is hard to find. That seems to be how the mode was designed, not a result of the patch.
 
 ## To do / help wanted
 
 Contributions are welcome. Open an issue or pull request.
 
-- **Multiplayer with a self-hosted server.** Multiplayer uses [Photon](https://www.photonengine.com/) (`ns.exitgames.com`),
-  and LEGO's Photon app ID has been disabled. Possible routes: register a new (free tier) Photon Cloud app ID and patch
-  it into the app, or run a self-hosted Photon-compatible server (Photon Server, or an open-source reimplementation).
-  The game also asks its own game server for multiplayer settings (`ic_multiplayer/*`), so that part probably
-  needs a replacement server too. Not investigated yet.
+- **Ghost mode private match with computer players.** The game asks the dead server for a room code; skipping that
+  request (see [docs/TECHNICAL.md](docs/TECHNICAL.md)) should let a private match start offline too.
+- **Online multiplayer with real players.** Multiplayer uses [Photon](https://www.photonengine.com/)
+  (`ns.exitgames.com`), and LEGO's Photon app ID has been disabled. Possible routes: register a new (free tier) Photon
+  Cloud app ID and patch it into the app, or run a self-hosted Photon-compatible server. Private matches also need
+  room codes from the game server (see the next item).
 - **Replacement game server.** The original Kung Fu Factory server (`projectbanana.ninja`) is gone. Its address is in
   `server_settings.json` inside the OBB (plain HTTP, no TLS), so a self-hosted server could stand in for it.
   First step: find out which features (mail, events, currency, multiplayer) actually need it.
-- **Fix the see-through ghost in the app itself**, so old saves don't need editing (see [Known issues](#known-issues)).
 
 ## How it was found
 
