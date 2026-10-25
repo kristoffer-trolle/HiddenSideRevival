@@ -100,9 +100,19 @@ Ghost mode ("DigitalStealthGame") is a Photon PUN 2 multiplayer mode. The host c
    `0x13AC1C0`: `mov x0,x21 ; … ; bl JoinRoom ; tbz w0,…` → `mov x0,x19 ; … ; bl FailedToFindRoom ; nop`;
    `0xA489B0`: `mov r0,r6 ; … ; bl JoinRoom ; cmp ; beq` → `mov r0,r4 ; … ; bl FailedToFindRoom ; cmp ; nop`.
 
-Private match still fails: `MainMenuGhostPreLobby.GetPriveRoomCode` tail-calls `SQServer.GetPrivateRoom`, whose
-callback `OnRequestRoomCallback` needs `{"success":…, "data":{"room":…}}` and then calls
-`MultiplayerConnectionPanel.SetPrivateRoom(room)` and `StartAsGhost(true)`. Redirecting that tail call is the next step.
+Quality-of-life patches in the same option:
+- Shorter lobby: `MatchmakingSettings.WaitTimeUntilGhostHost` (6 s, read in `ConnectionResponse`) → 1 s and
+  `WaitTimeUntilAutoStartWithBots` (45 s, read in `GhostHostWaitForPlayerCo`) → 3 s. Both are ints converted to float;
+  the patch loads the float constant directly and drops the conversion
+  (`0x13AD6F8`/`0x13AD704`, `0x13B0748`; `0xA4A318`, `0xA4E340`).
+- The match ends when the player's ghost is captured: `DigitalStealthGameLocalGhost.DeathCo` (only reached for the
+  local ghost) calls `DigitalStealthGameState.OnGameEnded(GameResult.GhostsCaptured = 2)` instead of
+  `ActivateSpectatorMode()` (`0x11BB078`; `0x7E4018`).
+- Private match: `MainMenuGhostPreLobby.GetPriveRoomCode` tail-calls `SQServer.GetPrivateRoom`, whose callback
+  `OnRequestRoomCallback` needs `{"success":…, "data":{"room":…}}` from the dead server. Instead,
+  `OnClickFriendsMulti`, `OnClickCreateGhostFriendMulti` and `OnClickJoinFriendsMulti` now start with a branch to
+  `OnClickGhostMulti`, so they start a normal match against AI (`0x11F0BA4`, `0x11F0E40`, `0x11F0D1C`;
+  `0x828BB8`, `0x828EF4`, `0x828D88`). A real offline private match would still need a faked room code.
 
 ## Ghost Zoo
 `GhostAquarium` scene / `AquariumManager`: a showcase where collected ghosts walk around a scanned set or the floor

@@ -123,6 +123,37 @@ if [ "${GHOST_OFFLINE:-0}" = 1 ]; then
     patch "$LIB" 0xA489B0 0600a0e10510a0e10720a0e137bbffeb000050e30100000a \
       0400a0e10510a0e10720a0e14c0a00eb000050e300f020e3 "EXPERIMENTAL: room search fails, so the player hosts a match"
   fi
+  # Shorter lobby: MatchmakingSettings.WaitTimeUntilGhostHost (6 s, read in ConnectionResponse) -> 1 s and
+  # WaitTimeUntilAutoStartWithBots (45 s, read in GhostHostWaitForPlayerCo) -> 3 s. Both are ints converted to float;
+  # load the float constant directly and drop the conversion.
+  # Private match needs room codes from the dead server; its buttons now start "Play multiplayer" instead
+  # (OnClickFriendsMulti / OnClickCreateGhostFriendMulti / OnClickJoinFriendsMulti -> b OnClickGhostMulti).
+  if [ "$ABI" = arm64-v8a ]; then
+    patch "$LIB" 0x13AD6F8 010140bd 01102e1e "EXPERIMENTAL: become host after 1 s (ldr s1 -> fmov s1,#1.0)"
+    patch "$LIB" 0x13AD704 21d8215e 1f2003d5 "EXPERIMENTAL: become host after 1 s (scvtf -> nop)"
+    patch "$LIB" 0x13B0748 010540bd21d8215e 0110211e1f2003d5 "EXPERIMENTAL: start with computer players after 3 s"
+    patch "$LIB" 0x11F0BA4 f657bda9 7cffff17 "EXPERIMENTAL: private match button -> Play multiplayer"
+    patch "$LIB" 0x11F0E40 f44fbea9 d5feff17 "EXPERIMENTAL: create private match -> Play multiplayer"
+    patch "$LIB" 0x11F0D1C f657bda9 1effff17 "EXPERIMENTAL: join private match -> Play multiplayer"
+  else
+    patch "$LIB" 0xA4A318 000a91edc00ab8ee 000ab7ee00f020e3 "EXPERIMENTAL: become host after 1 s"
+    patch "$LIB" 0xA4E340 010a91edc00ab8ee 080ab0ee00f020e3 "EXPERIMENTAL: start with computer players after 3 s"
+    patch "$LIB" 0x828BB8 f0482de9 52ffffea "EXPERIMENTAL: private match button -> Play multiplayer"
+    patch "$LIB" 0x828EF4 30482de9 83feffea "EXPERIMENTAL: create private match -> Play multiplayer"
+    patch "$LIB" 0x828D88 f0482de9 defeffea "EXPERIMENTAL: join private match -> Play multiplayer"
+  fi
+  # End the match when the player's own ghost is captured instead of watching the computer players: in
+  # DigitalStealthGameLocalGhost.DeathCo (only reached for the player's ghost) call
+  # DigitalStealthGameState.OnGameEnded(GameResult.GhostsCaptured = 2) instead of ActivateSpectatorMode().
+  if [ "$ABI" = arm64-v8a ]; then
+    # cbz x0,<throw> ; bl ActivateSpectatorMode  ->  mov w1,#2 ; bl OnGameEnded
+    patch "$LIB" 0x11BB078 a01e00b4ee010094 41008052746b0094 "EXPERIMENTAL: match ends when your ghost is captured"
+  else
+    # cmp r0,#0 ; bne ; bl <throw> ; mov r0,r5 ; bl ActivateSpectatorMode
+    #   ->  mov r1,#2 ; mov r2,#0 ; nop ; mov r0,r5 ; bl OnGameEnded
+    patch "$LIB" 0x7E4018 000050e30000001aa258feeb0500a0e1b70100eb 0210a0e30020a0e300f020e30500a0e1ea8b00eb \
+      "EXPERIMENTAL: match ends when your ghost is captured"
+  fi
 fi
 
 # targetSdkVersion 30 -> 29. With 30, Android 11+ package visibility hides the ARCore app from the game

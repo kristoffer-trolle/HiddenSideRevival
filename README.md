@@ -170,12 +170,13 @@ ghosts and a computer-controlled hunter. Build the APK like this instead:
 GHOST_OFFLINE=1 bash scripts/patch_apk.sh original.apk
 ```
 
-Then in the game: **Ghost mode → Play multiplayer**. The search screen looks for other players for a moment, then
-you become the host and the match starts with computer players. Tested on one phone with full matches.
+Then in the game: **Ghost mode → Play multiplayer**. After about a second you become the host, and after about
+3 seconds the match starts with computer players. When your own ghost is captured, the match ends right away (instead
+of making you watch the computer players finish). Tested on one phone with full matches.
 
-Not working yet: **Private match** stops on a half-black screen after choosing a set (it asks the dead server for a
-room code). This option also makes the game's "is there internet?" check always say yes, so online-only features
-don't show a "need internet" message anymore; they still don't work.
+**Private match** needs room codes from the dead server, so with this option its buttons start a normal match
+against computer players instead. This option also makes the game's "is there internet?" check always say yes, so
+online-only features don't show a "need internet" message anymore; they still don't work.
 </details>
 
 ### Step 5: Install on the phone
@@ -270,8 +271,8 @@ you want on your everyday phone, and the minifigure scan still won't show ghosts
 
 ## Known issues
 
-- **Ghost mode private match** stops on a half-black screen after you choose a set, even with `GHOST_OFFLINE=1`.
-  Use *Play multiplayer* instead.
+- **Ghost mode private match** isn't possible offline. Without `GHOST_OFFLINE=1` it stops on a half-black screen
+  after you choose a set; with it, the private match buttons start a normal match against computer players.
 - **Ghost mode ammo** is hard to find. That seems to be how the mode was designed, not a result of the patch.
 
 ## To do / help wanted
